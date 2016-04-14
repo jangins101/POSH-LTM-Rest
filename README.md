@@ -7,7 +7,7 @@ It requires PowerShell v3 or higher.
 It includes a Validation.cs class file (based on code posted by Brian Scholer on www.briantist.com) to allow for using the REST API with LTM devices using self-signed SSL certificates.
 
 To use:
-Download all the files and place them in a F5-LTM folder beneath your PowerShell modules folder. By default, this is %USERPROFILE%\Documents\WindowsPowerShell\Modules or $env:userProfile\Documents\WindowsPowerShell\Modules
+Download all the files and place them in a F5-LTM folder beneath your PowerShell modules folder. By default, this is `%USERPROFILE%\Documents\WindowsPowerShell\Modules or $env:userProfile\Documents\WindowsPowerShell\Modules`
 This module is also available in the PowerShellGallery (https://www.powershellgallery.com/packages/f5-ltm)
 
 The module contains the following functions.
@@ -56,6 +56,7 @@ The module contains the following functions.
    * Remove-ProfileRamCache
    * Remove-Node
    * Remove-VirtualServer
+   * Rename-Node
    * Set-PoolMemberDescription
    * Sync-DeviceToGroup
    * Test-F5Session
