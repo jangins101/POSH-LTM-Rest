@@ -9,16 +9,19 @@
     [cmdletBinding()]
     param (
         $F5Session=$Script:F5Session,
-
+        
+        [Parameter(Mandatory=$true,ParameterSetName='InputObjectWithProperties',ValueFromPipeline=$true)]
         [Parameter(Mandatory=$true,ParameterSetName='InputObjectWithAddress',ValueFromPipeline=$true)]
         [Parameter(Mandatory=$true,ParameterSetName='InputObjectWithComputerName',ValueFromPipeline=$true)]
         [Alias("Pool")]
         [PSObject[]]$InputObject,
 
+        [Parameter(Mandatory=$true,ParameterSetName='PoolNameWithProperties',ValueFromPipeline=$true)]
         [Parameter(Mandatory=$true,ParameterSetName='PoolNameWithAddress',ValueFromPipeline=$true)]
         [Parameter(Mandatory=$true,ParameterSetName='PoolNameWithComputerName')]
         [string[]]$PoolName,
 
+        [Parameter(Mandatory=$false,ParameterSetName='PoolNameWithProperties',ValueFromPipeline=$true)]
         [Parameter(Mandatory=$false,ParameterSetName='PoolNameWithAddress',ValueFromPipeline=$true)]
         [Parameter(Mandatory=$false,ParameterSetName='PoolNameWithComputerName')]
         [string]$Partition,
@@ -30,22 +33,41 @@
         [Parameter(Mandatory=$true,ParameterSetName='InputObjectWithAddress')]
         [Parameter(Mandatory=$true,ParameterSetName='PoolNameWithAddress')]
         [IPAddress]$Address,
-
-        [Parameter(Mandatory=$false)]
+        
+        [Parameter(Mandatory=$false,ParameterSetName='InputObjectWithAddress')]
+        [Parameter(Mandatory=$false,ParameterSetName='InputObjectWithComputerName')]
+        [Parameter(Mandatory=$false,ParameterSetName='PoolNameWithAddress')]
+        [Parameter(Mandatory=$false,ParameterSetName='PoolNameWithComputerName')]
+        [Alias("NodeName")]
         [string]$Name,
 
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory=$true,ParameterSetName='InputObjectWithAddress')]
+        [Parameter(Mandatory=$true,ParameterSetName='InputObjectWithComputerName')]
+        [Parameter(Mandatory=$true,ParameterSetName='PoolNameWithAddress')]
+        [Parameter(Mandatory=$true,ParameterSetName='PoolNameWithComputerName')]
         [ValidateRange(0,65535)]
         [int]$PortNumber,
     
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory=$false,ParameterSetName='InputObjectWithAddress')]
+        [Parameter(Mandatory=$false,ParameterSetName='InputObjectWithComputerName')]
+        [Parameter(Mandatory=$false,ParameterSetName='PoolNameWithAddress')]
+        [Parameter(Mandatory=$false,ParameterSetName='PoolNameWithComputerName')]
         [string]$Description=$ComputerName,
-
+        
+        [Parameter(Mandatory=$true,ParameterSetName='InputObjectWithProperties')]
+        [Parameter(Mandatory=$true,ParameterSetName='PoolNameWithProperties')]
+        [Alias("Properties")]
+        [PSCustomObject]$MemberProperties=@{},
+        
+        [Parameter(Mandatory=$false)]
         [ValidateSet("Enabled","Disabled")]
-        [Parameter(Mandatory=$true)]$Status
+        [string]$Status
     )
 
     begin {
+        Write-Verbose "Add-PoolMember";
+        Write-Verbose "  $($PSCmdLet.ParameterSetName)";
+
         #Test that the F5 session is in a valid format
         Test-F5Session($F5Session)
 
@@ -55,15 +77,30 @@
     }
 
     process {
-#        $Address.IPAddressToString
-#        $PSCmdLet.ParameterSetName
-
         switch -Wildcard ($PSCmdLet.ParameterSetName) {
+            "InputObjectWithProperties" {
+                Write-Verbose "  InputObjectWithProperties";
+                switch ($InputObject.kind) {
+                    "tm:ltm:pool:poolstate" {
+                        if (!($Properties -and $Properties.name)) {
+                            Write-Error "Property list is required"
+                        } else {
+                            foreach ($pool in $InputObject) {
+                                $JSONBody = $MemberProperties | ConvertTo-Json
+                                $MembersLink = $F5Session.GetLink($pool.membersReference.link)
+                                Invoke-RestMethodOverride -Method POST -Uri "$MembersLink" -Credential $F5session.Credential -Body $JSONBody -ContentType 'application/json' -ErrorMessage "Failed to add $($MemberProperties.Name) to $($pool.name)." | Add-ObjectDetail -TypeName 'PoshLTM.PoolMember'
+                            }
+                        }
+                    }
+                }
+                break;
+            }
             "InputObjectWith*" {
+                Write-Verbose "  InputObjectWith*";
                 switch ($InputObject.kind) {
                     "tm:ltm:pool:poolstate" {
                         if (!$Address) {
-                            Write-Error 'Address is required when the pipeline object is not a PoolMember'
+                            Write-Error 'Address or Property list is required when the pipeline object is not a PoolMember'
                         } else {
                             if (!$Name) {
                                 $Name = '{0}:{1}' -f $Address.IPAddressToString,$PortNumber
@@ -95,11 +132,21 @@
                         }
                     }
                 }
+                break;
+            }
+            "PoolNameWithProperties" {
+                Write-Verbose "  PoolNameWithProperties";
+                foreach ($pName in $PoolNae) {
+                    Get-Pool -F5Session $F5Session -PoolName $pName -Partition $Partition | Add-PoolMember -F5session $F5Session -Properties $Properties
+                }
+                break;
             }
             "PoolNameWith*" {
+                Write-Verbose "  PoolNameWith*";
                 foreach($pName in $PoolName) {
                     Get-Pool -F5Session $F5Session -PoolName $pName -Partition $Partition | Add-PoolMember -F5session $F5Session -Address $Address -Name $Name -PortNumber $PortNumber -Status $Status
                 }
+                break;
             }
         }
     }

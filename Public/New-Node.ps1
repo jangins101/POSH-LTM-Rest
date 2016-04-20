@@ -1,54 +1,69 @@
 ﻿Function New-Node {
 <#
 .SYNOPSIS
-    Create Node(s)
-
+    Create a new node.
+.DESCRIPTION
+    Expects $NodeAddress to be an IPAddress object. 
+    $NodeName is optional, and will default to the IPAddress is not included
+    Returns the new node definition
 .EXAMPLE
-    New-Node -Address 192.168.1.42
-#>
+    New-Node -F5Session $F5Session -Name "MyNodeName" -Address 10.0.0.1 -Description "My node description"
+#>   
     [cmdletBinding()]
     param (
-        $F5Session=$Script:F5Session,
+        [Parameter(Mandatory=$true, ParameterSetName="Simple")]
+        [IPAddress]$Address,
 
-        [Parameter(Mandatory=$true,ParameterSetName='Address',ValueFromPipeline=$true,ValueFromPipelineByPropertyName=$true)]
-        [string[]]$Address,
+        [Parameter(Mandatory=$false, ParameterSetName="Simple")]
+        [String]$Partition="Common",
+        
+        [Parameter(Mandatory=$false, ParameterSetName="Simple")]
+        [string]$Name=$null,
+        
+        [Parameter(Mandatory=$false, ParameterSetName="Simple")]
+        [string]$Description=$null,
+        
+        [Parameter(Mandatory=$true, ParameterSetName="Full" )]
+        [PSCustomObject]$Properties=@{},
+        
+        [Switch]$PassThrough,
 
-        [Alias('ComputerName')]
-        [Alias('NodeName')]
-        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
-        [string[]]$Name='',
-
-        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
-        [string]$Partition,
-
-        [Parameter(Mandatory=$false,ValueFromPipelineByPropertyName=$true)]
-        [string[]]$Description='',
-
-        [switch]$Passthru
+        $F5Session=$Script:F5Session
     )
     begin {
         #Test that the F5 session is in a valid format
         Test-F5Session($F5Session)
-
+        
         $URI = ($F5Session.BaseURL + "node")
+
+        switch ($PSCmdlet.ParameterSetName) {
+            "Simple" {
+                if ($Name -match '^[/\\](?<Partition>[^/\\]*)[/\\](?<Name>[^/\\]*)$') {
+                    $Partition = $matches['Partition']
+                    $Name = $matches['Name']
+                } else {                
+                    # Default the name to the address if not provided
+                    $Name = ($Name, "$Address", $_ -ne $null)[0]
+                }
+                $Properties = [PSCustomObject]@{name=$Name;address="$Address";partition=$Partition;description=$Description};
+            }
+            "Full" { 
+                $Name = $Properties.name;
+            }
+            default { 
+                throw "Unable to determine node properties"
+            }
+        }
     }
     process {
-        for ([int]$a=0; $a -lt $Address.Count; $a++) {
-            $itemname = ($Name[$a],$Address[$a] -ne '')[0]
-            $newitem = New-F5Item -Name $itemname -Partition $Partition 
-            #Check whether the specified node already exists
-            If (Test-Node -F5session $F5Session -Name $newitem.Name -Partition $newitem.Partition){
-                Write-Error "The $($newitem.FullPath) node already exists."
-            } else {
-                #Start building the JSON for the action
-                $JSONBody = @{address=$Address[$a];name=$newitem.Name;partition=$newitem.Partition;description=$Description[$a]} | ConvertTo-Json
 
-                Invoke-RestMethodOverride -Method POST -Uri "$URI" -Credential $F5Session.Credential -Body $JSONBody -ContentType 'application/json' |
-                    Out-Null
-                if ($Passthru) {
-                    Get-Node -F5Session $F5Session -Name $newitem.Name -Partition $newitem.Partition
-                }
-            }
+        #Check whether the specified node already exists
+        if (Test-Node -F5Session $F5Session -Name $Name){
+            Write-Error "The $Name node already exists."
+        } else {
+            $JSONBody = $Properties | ConvertTo-Json
+            $newNode = Invoke-RestMethodOverride -Method POST -Uri "$URI" -Credential $F5Session.Credential -Body $JSONBody -ContentType 'application/json' -ErrorMessage ("Failed to create the $Name node.")
+            if ($PassThrough) { $newNode }
         }
     }
 }
